@@ -28,6 +28,25 @@ def cosine_warmup(step, total, warmup, base_lr):
     return 0.5 * base_lr * (1 + math.cos(math.pi * prog))
 
 
+def class_weights(dataset, num_classes, device):
+    """Inverse-frequency weights so the loss is not dominated by the majority class."""
+    labels = np.array([dataset[i][1] for i in range(len(dataset))])
+    counts = np.bincount(labels, minlength=num_classes).astype(np.float64)
+    counts = np.clip(counts, 1.0, None)
+    w = counts.sum() / (num_classes * counts)      # mean weight ~ 1
+    return torch.tensor(w, dtype=torch.float32, device=device)
+
+
+def anneal_gumbel_tau(model, step, total, tau0, tau_min):
+    """Cosine anneal the Gumbel temperature high->low; hard-switch late = stabler."""
+    prog = min(step / max(total, 1), 1.0)
+    tau = tau_min + 0.5 * (tau0 - tau_min) * (1 + math.cos(math.pi * prog))
+    # set on the PPG layer if present
+    ppg = getattr(model, "ppg", None)
+    if ppg is not None and hasattr(ppg, "current_gumbel_tau"):
+        ppg.current_gumbel_tau = tau
+
+
 @torch.no_grad()
 def evaluate(model, loader, cfg):
     model.eval()
@@ -50,7 +69,12 @@ def train(model, datasets, cfg, verbose=True):
     loaders = make_loaders(datasets, cfg)
     model.to(cfg.device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
-    criterion = nn.CrossEntropyLoss()
+
+    if getattr(cfg, "class_balanced_loss", False):
+        w = class_weights(datasets["train"], cfg.num_classes, cfg.device)
+        criterion = nn.CrossEntropyLoss(weight=w)
+    else:
+        criterion = nn.CrossEntropyLoss()
 
     total_steps = cfg.epochs * len(loaders["train"])
     warmup_steps = cfg.warmup_epochs * len(loaders["train"])
@@ -64,6 +88,8 @@ def train(model, datasets, cfg, verbose=True):
             x, y = x.to(cfg.device), y.to(cfg.device)
             for g in opt.param_groups:
                 g["lr"] = cosine_warmup(step, total_steps, warmup_steps, cfg.lr)
+            anneal_gumbel_tau(model, step, total_steps,
+                              cfg.gumbel_tau, getattr(cfg, "gumbel_tau_min", cfg.gumbel_tau))
             out = model(x)
             loss = criterion(out["logits"], y)
             opt.zero_grad()

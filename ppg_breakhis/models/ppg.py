@@ -49,7 +49,9 @@ class PPGLayer(nn.Module):
 
         # uncertainty gate g: non-negative weights via softplus(theta)
         self.gate_theta = nn.Parameter(torch.zeros(P, P))
-        self.gate_bias = nn.Parameter(torch.ones(P) * 2.0)   # start with gates open
+        self.gate_bias = nn.Parameter(torch.ones(P) * cfg.gate_bias_init)  # gates start open
+        # current Gumbel temperature; the trainer anneals this each step
+        self.current_gumbel_tau = cfg.gumbel_tau
 
         self.dropout = nn.Dropout2d(cfg.mc_dropout_p)
 
@@ -61,7 +63,11 @@ class PPGLayer(nn.Module):
             self.register_buffer("W_head", W)
             self.head = None
         else:
-            self.head = nn.Linear(P, self.C, bias=False)
+            # learnable head WITH bias (lets the decision boundary shift so the
+            # model can escape a majority-class collapse) plus a learnable logit
+            # scale so weak activations still produce confident, separable logits.
+            self.head = nn.Linear(P, self.C, bias=True)
+            self.logit_scale = nn.Parameter(torch.tensor(1.0))
 
     # ---- one stochastic scoring pass over a feature map ----
     def _score_once(self, feat):
@@ -111,7 +117,7 @@ class PPGLayer(nn.Module):
                 gate_logit = self.cfg.beta * (self.cfg.gamma - u)   # closes on high u
             else:  # 'original' -> the buggy sign that OPENS on high u
                 gate_logit = self.cfg.beta * (u - self.cfg.gamma)
-            z = gumbel_sigmoid(gate_logit, self.cfg.gumbel_tau, self.training)
+            z = gumbel_sigmoid(gate_logit, self.current_gumbel_tau, self.training)
         else:
             z = torch.ones_like(mu)
 
@@ -127,7 +133,7 @@ class PPGLayer(nn.Module):
         if self.head is None:
             logits = a @ self.W_head.t()          # fixed positive block weights
         else:
-            logits = self.head(a)
+            logits = self.logit_scale.abs() * self.head(a)   # scaled learnable head
 
         return {"logits": logits, "mu": mu, "sigma": sigma, "alpha": alpha, "a": a}
 
