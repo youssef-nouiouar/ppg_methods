@@ -79,7 +79,8 @@ def train(model, datasets, cfg, verbose=True):
     total_steps = cfg.epochs * len(loaders["train"])
     warmup_steps = cfg.warmup_epochs * len(loaders["train"])
     step = 0
-    best_val_auc, best_state = -1.0, None
+    select_on = getattr(cfg, "select_metric", "f1")   # f1 is robust under imbalance
+    best_score, best_state = -1.0, None
 
     for epoch in range(cfg.epochs):
         model.train()
@@ -103,9 +104,12 @@ def train(model, datasets, cfg, verbose=True):
             print(f"[{cfg.exp_name}] epoch {epoch+1:02d}/{cfg.epochs} "
                   f"loss={running/len(datasets['train']):.4f} "
                   f"val_acc={val['accuracy']:.4f} val_auc={val['auc']:.4f} "
-                  f"val_ece={val['ece']:.4f}")
-        if val["auc"] > best_val_auc:
-            best_val_auc = val["auc"]
+                  f"val_f1={val['f1']:.4f} val_ece={val['ece']:.4f}")
+        # Select on accuracy/F1, NOT AUC: a collapsed epoch can have high AUC but
+        # terrible decisions, and selecting on AUC would save that broken model.
+        score = val.get(select_on, val["accuracy"])
+        if score > best_score:
+            best_score = score
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
     if best_state is not None:

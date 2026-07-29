@@ -53,6 +53,9 @@ class Config:
     weight_decay: float = 1e-4
     warmup_epochs: int = 2
     class_balanced_loss: bool = True            # weight CE by inverse class frequency
+    select_metric: Literal["f1", "accuracy", "auc"] = "f1"  # checkpoint selection criterion
+                                                # (NOT auc: a collapsed epoch can have high
+                                                #  auc but ~random accuracy)
     num_workers: int = 4
     seed: int = 0
     device: str = "cuda"
