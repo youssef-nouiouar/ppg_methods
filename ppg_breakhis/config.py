@@ -1,7 +1,10 @@
-"""Central configuration for the PPG-BreakHis experiments.
+"""Central configuration for the PPG sign-language experiments.
 
 Every hyperparameter and ablation switch lives here so the rest of the code
 stays clean. Override any field from the command line in train.py.
+
+Ported from BreakHis histopathology to the Arabic Sign Language "Mosl_alphabet"
+alphabet (32 classes). Data is two physically separate folders (train / test).
 """
 from dataclasses import dataclass, field
 from typing import Literal
@@ -9,14 +12,20 @@ from typing import Literal
 
 @dataclass
 class Config:
-    # ---- data ----
-    data_root: str = "./BreakHis_v1"          # folder that contains the images
-    magnification: str = "200X"                # 40X | 100X | 200X | 400X
+    # ---- data (Arabic Sign Language "Mosl_alphabet", 32 classes) ----
+    # Two physically separate folders under data_root -> no train/test leakage.
+    data_root: str = "/kaggle/input/datasets/youssefnouiouar1/sing-language-recognition/SLR"
+    train_subdir: str = "Mosl_alphabet_train"   # -> stratified 80/20 train/val
+    test_subdir: str = "Mosl_alphabet_test"     # -> held-out test set
     image_size: int = 224
-    val_frac: float = 0.10                      # fractions are PATIENT-level, not image-level
-    test_frac: float = 0.20
-    num_classes: int = 2                        # benign vs malignant
-    class_names: tuple = ("benign", "malignant")
+    val_frac: float = 0.20                       # 80/20 train/val split of the train folder
+    num_classes: int = 32
+    class_names: tuple = (
+        "ain", "al", "aleff", "bb", "dal", "dha", "dhad", "fa", "gaaf", "ghain",
+        "ha", "haa", "jeem", "kaaf", "khaa", "la", "laam", "meem", "nun", "ra",
+        "saad", "seen", "sheen", "ta", "taa", "thaa", "thal", "toot", "waw",
+        "ya", "yaa", "zay",
+    )                                            # sorted; list index == class label
 
     # ---- backbone ----
     backbone: str = "swin_tiny_patch4_window7_224"

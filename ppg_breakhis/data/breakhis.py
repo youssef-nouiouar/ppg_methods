@@ -1,23 +1,21 @@
-"""BreakHis dataset loader with a PATIENT-LEVEL split.
+"""Sign-language dataset loader (Arabic Sign Language "Mosl_alphabet", 32 classes).
 
-The single biggest mistake with BreakHis is splitting by image: the same
-patient's slides then appear in both train and test, and accuracy becomes
-meaningless. BreakHis filenames encode the patient/slide id, e.g.
+NOTE: the filename stays `breakhis.py` for import compatibility - train.py,
+run_ablations.py and the notebooks all do `from data.breakhis import
+make_datasets`. This project was ported from BreakHis to sign language.
 
-    SOB_B_TA-14-4659-400-001.png
-        |  |     |  |    |   |
-        |  |     |  |    |   +-- sequence number
-        |  |     |  |    +------ magnification (40 / 100 / 200 / 400)
-        |  |     |  +----------- slide id      -> used as the PATIENT group
-        |  |     +-------------- year
-        |  +-------------------- tumor subtype (TA, DC, ...)
-        +----------------------- class: B (benign) or M (malignant)
+Leakage-free by construction via two physically separate folders under
+`cfg.data_root`:
+  - `cfg.train_subdir` : class-subfolder images -> stratified 80/20 train/val
+  - `cfg.test_subdir`  : held-out test set (class subfolders OR a flat folder of
+                         class-named files, e.g. `aleff.png`)
 
-We group by "<year>-<slideid>" and split those groups, so no patient leaks.
+Transforms are ORIENTATION-PRESERVING. Unlike histopathology (flip/rotation
+invariant), hand signs are orientation-sensitive, so NO horizontal or vertical
+flips are used - only crops, small rotations, colour jitter and RandAugment.
 """
 import os
-import glob
-import re
+from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
@@ -25,96 +23,73 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import train_test_split
 
 
-_FNAME_RE = re.compile(
-    r"SOB_(?P<cls>[BM])_[A-Za-z]+-(?P<year>\d+)-(?P<slide>[A-Za-z0-9]+)-(?P<mag>\d+)-\d+"
-)
-
-
-def _parse(fname: str):
-    """Return (class_idx, patient_group, magnification) or None if unparseable."""
-    m = _FNAME_RE.search(os.path.basename(fname))
-    if m is None:
-        return None
-    cls = 0 if m.group("cls") == "B" else 1        # benign=0, malignant=1
-    patient = f"{m.group('year')}-{m.group('slide')}"
-    mag = m.group("mag") + "X"
-    return cls, patient, mag
-
-
-def scan_breakhis(root: str, magnification: str) -> Tuple[List[str], List[int], List[str]]:
-    """Walk the BreakHis folder and collect paths/labels/patient-groups."""
-    paths, labels, groups = [], [], []
-    for p in glob.glob(os.path.join(root, "**", "*.png"), recursive=True):
-        parsed = _parse(p)
-        if parsed is None:
-            continue
-        cls, patient, mag = parsed
-        if mag != magnification:
-            continue
-        paths.append(p)
-        labels.append(cls)
-        groups.append(patient)
-    if not paths:
-        raise RuntimeError(
-            f"No {magnification} images found under {root}. "
-            "Check data_root and that filenames follow the SOB_* convention."
-        )
-    return paths, labels, groups
-
-
-def patient_level_split(paths, labels, groups, val_frac, test_frac, seed):
-    """Two nested GroupShuffleSplits -> train / val / test with disjoint patients."""
-    paths = np.array(paths)
-    labels = np.array(labels)
-    groups = np.array(groups)
-
-    gss_test = GroupShuffleSplit(n_splits=1, test_size=test_frac, random_state=seed)
-    trainval_idx, test_idx = next(gss_test.split(paths, labels, groups))
-
-    val_ratio = val_frac / (1.0 - test_frac)
-    gss_val = GroupShuffleSplit(n_splits=1, test_size=val_ratio, random_state=seed)
-    tr_rel, va_rel = next(
-        gss_val.split(paths[trainval_idx], labels[trainval_idx], groups[trainval_idx])
-    )
-    train_idx = trainval_idx[tr_rel]
-    val_idx = trainval_idx[va_rel]
-
-    # sanity: no patient overlap
-    for a, b in [(train_idx, val_idx), (train_idx, test_idx), (val_idx, test_idx)]:
-        assert set(groups[a]).isdisjoint(set(groups[b])), "patient leak between splits!"
-
-    return {
-        "train": (paths[train_idx], labels[train_idx]),
-        "val": (paths[val_idx], labels[val_idx]),
-        "test": (paths[test_idx], labels[test_idx]),
-    }
-
-
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".ppm", ".tif", ".tiff", ".webp"}
 _MEAN = (0.485, 0.456, 0.406)
 _STD = (0.229, 0.224, 0.225)
 
 
+def scan_folder(root: str, class_to_idx) -> Tuple[List[str], List[int]]:
+    """Scan an image folder -> (paths, integer labels).
+
+    Handles a class-subfolder layout (root/<class>/<imgs>) or a flat folder of
+    class-named files (root/<class>*.<ext>). Longest-prefix match disambiguates
+    names such as 'al' vs 'aleff'.
+    """
+    root = Path(root)
+    if not root.exists():
+        raise RuntimeError(f"Dataset folder not found: {root}")
+    classes = list(class_to_idx)
+    by_len = sorted(classes, key=len, reverse=True)
+    subdirs = [d for d in root.iterdir() if d.is_dir()]
+    paths, labels = [], []
+    if subdirs:                                   # class-subfolder layout
+        for cls in classes:
+            cdir = root / cls
+            if not cdir.is_dir():
+                continue
+            for f in sorted(cdir.iterdir()):
+                if f.is_file() and f.suffix.lower() in IMG_EXTS:
+                    paths.append(str(f))
+                    labels.append(class_to_idx[cls])
+    else:                                         # flat layout: label from filename
+        cset = set(classes)
+        for f in sorted(root.iterdir()):
+            if f.is_file() and f.suffix.lower() in IMG_EXTS:
+                stem = f.stem.lower()
+                lbl = stem if stem in cset else next(
+                    (c for c in by_len if stem.startswith(c.lower())), None)
+                if lbl is not None:
+                    paths.append(str(f))
+                    labels.append(class_to_idx[lbl])
+    if not paths:
+        raise RuntimeError(f"No images found under {root}.")
+    return paths, labels
+
+
 def build_transforms(image_size: int, train: bool):
+    """Orientation-preserving transforms (NO flips: signs are orientation-sensitive)."""
     if train:
         return transforms.Compose([
-            transforms.Resize((image_size, image_size)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomVerticalFlip(),
-            transforms.ColorJitter(0.1, 0.1, 0.1),
+            transforms.RandomResizedCrop(image_size, scale=(0.7, 1.0)),
+            transforms.RandomRotation(10),
+            transforms.ColorJitter(0.2, 0.2, 0.2, 0.0),
+            transforms.RandAugment(num_ops=2, magnitude=7),
             transforms.ToTensor(),
             transforms.Normalize(_MEAN, _STD),
         ])
+    resize = int(round(image_size * 256 / 224))
     return transforms.Compose([
-        transforms.Resize((image_size, image_size)),
+        transforms.Resize(resize),
+        transforms.CenterCrop(image_size),
         transforms.ToTensor(),
         transforms.Normalize(_MEAN, _STD),
     ])
 
 
-class BreakHisDataset(Dataset):
+class SignDataset(Dataset):
     def __init__(self, paths, labels, image_size, train):
         self.paths = list(paths)
         self.labels = list(labels)
@@ -125,18 +100,24 @@ class BreakHisDataset(Dataset):
 
     def __getitem__(self, i):
         img = Image.open(self.paths[i]).convert("RGB")
-        x = self.tf(img)
-        y = int(self.labels[i])
-        return x, y
+        return self.tf(img), int(self.labels[i])
 
 
 def make_datasets(cfg):
-    """Convenience: returns train/val/test BreakHisDataset objects from a Config."""
-    paths, labels, groups = scan_breakhis(cfg.data_root, cfg.magnification)
-    split = patient_level_split(paths, labels, groups,
-                                cfg.val_frac, cfg.test_frac, cfg.seed)
-    ds = {
-        name: BreakHisDataset(p, y, cfg.image_size, train=(name == "train"))
-        for name, (p, y) in split.items()
+    """{train,val,test}: 80/20 split of the train folder + the separate test folder."""
+    class_to_idx = {c: i for i, c in enumerate(cfg.class_names)}   # class_names is sorted
+    train_root = os.path.join(cfg.data_root, cfg.train_subdir)
+    test_root = os.path.join(cfg.data_root, cfg.test_subdir)
+
+    tr_paths, tr_labels = scan_folder(train_root, class_to_idx)
+    te_paths, te_labels = scan_folder(test_root, class_to_idx)
+
+    p_tr, p_va, y_tr, y_va = train_test_split(
+        tr_paths, tr_labels, test_size=cfg.val_frac, stratify=tr_labels,
+        random_state=cfg.seed)
+
+    return {
+        "train": SignDataset(p_tr, y_tr, cfg.image_size, train=True),
+        "val": SignDataset(p_va, y_va, cfg.image_size, train=False),
+        "test": SignDataset(te_paths, te_labels, cfg.image_size, train=False),
     }
-    return ds
