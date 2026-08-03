@@ -15,7 +15,7 @@ class Config:
     # ---- data (Arabic Sign Language "Mosl_alphabet", 32 classes) ----
     # Two physically separate folders under data_root -> no train/test leakage.
     data_root: str = "/kaggle/input/datasets/youssefnouiouar1/sing-language-recognition/SLR"
-    train_subdir: str = "Mosl_alphabet_train"   # -> stratified 80/20 train/val
+    train_subdir: str = "Mosl_alphabet"   # -> stratified 80/20 train/val
     test_subdir: str = "Mosl_alphabet_test"     # -> held-out test set
     image_size: int = 224
     val_frac: float = 0.20                       # 80/20 train/val split of the train folder

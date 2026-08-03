@@ -79,7 +79,7 @@ def main():
     if not torch.cuda.is_available():
         cfg.device = "cpu"
 
-    from data.breakhis import make_datasets
+    from ppg_slr.data.slr import make_datasets
     datasets = make_datasets(cfg)
     print({k: len(v) for k, v in datasets.items()})
 

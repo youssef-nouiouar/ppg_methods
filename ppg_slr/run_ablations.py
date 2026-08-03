@@ -11,6 +11,7 @@ import json
 import os
 
 import numpy as np
+from ppg_slr import data
 import torch
 
 from config import Config
@@ -18,7 +19,7 @@ from models.backbone import SwinFeatureExtractor
 from models.baselines import build_model
 from engine.trainer import train
 from train import set_seed
-from data.breakhis import make_datasets
+from ppg_slr.data.slr import make_datasets
 
 
 # name -> dict of Config overrides. exp_name prefix picks the architecture.
