@@ -52,7 +52,9 @@ class MCDropoutViT(nn.Module):
         self.head = nn.Linear(backbone.out_channels, cfg.num_classes)
 
     def _once(self, feat):
-        pooled = self.drop(feat.mean(dim=(2, 3)))
+        # MC dropout: stays ON at eval (nn.Dropout would switch off under model.eval(),
+        # making all M passes identical)
+        pooled = F.dropout(feat.mean(dim=(2, 3)), p=self.cfg.mc_dropout_p, training=True)
         return self.head(pooled)
 
     def forward(self, x):
