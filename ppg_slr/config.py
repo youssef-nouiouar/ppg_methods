@@ -12,20 +12,16 @@ from typing import Literal
 
 @dataclass
 class Config:
-    # ---- data (Arabic Sign Language "Mosl_alphabet", 32 classes) ----
+    # ----  ----
     # Two physically separate folders under data_root -> no train/test leakage.
-    data_root: str = "/kaggle/input/datasets/youssefnouiouar1/sing-language-recognition/SLR"
-    train_subdir: str = "Mosl_alphabet"   # -> stratified 80/20 train/val
-    test_subdir: str = "Mosl_alphabet_test"     # -> held-out test set
+    data_root: str = "/kaggle/input/datasets/kylewang1999/pbc-dataset/PBC_dataset_split/PBC_dataset_split"
+    train_subdir: str = "Train"   # 
+    val_subdir: str = "Train"     # 
+    test_subdir: str = "Test"     # -> held-out test set
     image_size: int = 224
     val_frac: float = 0.20                       # 80/20 train/val split of the train folder
-    num_classes: int = 32
-    class_names: tuple = (
-        "ain", "al", "aleff", "bb", "dal", "dha", "dhad", "fa", "gaaf", "ghain",
-        "ha", "haa", "jeem", "kaaf", "khaa", "la", "laam", "meem", "nun", "ra",
-        "saad", "seen", "sheen", "ta", "taa", "thaa", "thal", "toot", "waw",
-        "ya", "yaa", "zay",
-    )                                            # sorted; list index == class label
+    num_classes: int = 8
+                                                # sorted; list index == class label
 
     # ---- backbone ----
     backbone: str = "swin_tiny_patch4_window7_224"
@@ -56,7 +52,7 @@ class Config:
     gate_bias_init: float = 3.0                 # larger -> gates start more open (stabler)
 
     # ---- training ----
-    epochs: int = 30
+    epochs: int = 8
     batch_size: int = 16
     lr: float = 1e-4
     weight_decay: float = 1e-4
