@@ -26,7 +26,7 @@ from torchvision import transforms
 from sklearn.model_selection import train_test_split
 
 
-IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".ppm", ".tif", ".tiff", ".webp"}
+IMG_EXTS = {".jpg", ".jpeg", ".png"}
 _MEAN = (0.485, 0.456, 0.406)
 _STD = (0.229, 0.224, 0.225)
 

@@ -13,11 +13,6 @@ Pipeline (per image, M stochastic passes through the prototype layer):
   logit_c   = b_c + s * sum_k W_ck a_k,  W_ck >= 0, s > 0 positive-evidence head
               (s = one learnable positive scalar, see logit_scale below)
 
-REMOVED compared with the previous version:
-  * Gumbel-sigmoid Bernoulli gate z   (gate_logit, gumbel_sigmoid, gumbel_tau, ...)
-  * learned monotonic gate g          (gate_theta, gate_bias)
-  * Student t-interval                (prototype_confidence_interval)
-
 Two-stage training (see PPGSwinT.set_stage / calibrate_u_median):
   stage 1: gate OFF, a_k = e_k computed from a single pass
   stage 2: gate ON,  M passes, u_median calibrated at the start of the stage
