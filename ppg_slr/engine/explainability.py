@@ -177,8 +177,8 @@ def overlay_grid(models_dict, x, y, cfg, n=4):
             sal, method = get_saliency(models_dict[name], x[r:r+1], y[r:r+1], cfg)
             axes[r, c + 1].imshow(imgs[r].permute(1, 2, 0))
             axes[r, c + 1].imshow(sal[0].cpu(), cmap="jet", alpha=0.5)
-            if r == 0:
-                axes[r, c + 1].set_title(f"{name}\n({method})", fontsize=9)
+            # if r == 0:
+            #     axes[r, c + 1].set_title(f"{name}\n({method})", fontsize=9)
             axes[r, c + 1].axis("off")
     plt.tight_layout()
     return fig
