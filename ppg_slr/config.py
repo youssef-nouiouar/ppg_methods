@@ -24,7 +24,10 @@ class Config:
                                                 # sorted; list index == class label
 
     # ---- backbone ----
-    backbone: str = "deit_small_patch16_224"
+    backbone: str = "resnet34"
+    cnn_stage=None
+    addon_type='linear'
+    addon_dim=128
     pretrained: bool = True
     feature_stage: int = 3                      # 2 -> 1/16 (384ch), 3 -> 1/32 (768ch, matches D=768)
 
