@@ -1,19 +1,20 @@
-"""Baselines. Each isolates one of PPG's two claims.
+"""Baselines. Each isolates one of PPG's two claims. All work with any backbone
+returned by make_backbone (CNN, Swin or ViT).
 
-  PlainSwin        : no prototypes, no uncertainty  -> is any machinery needed?
-  DeterministicProto: prototypes + hard max, no uncertainty -> does the
+  PlainBackbone      : no prototypes, no uncertainty  -> is any machinery needed?
+  DeterministicProto : prototypes + hard max, no uncertainty -> does the
                        PROBABILISTIC part beat plain prototypes?
-  MCDropoutViT     : uncertainty but no prototypes -> does the PROTOTYPE part
+  MCDropoutBackbone  : uncertainty but no prototypes -> does the PROTOTYPE part
                        add anything over plain uncertainty?
 
-All return the same dict shape as PPGSwinT for a uniform training/eval loop.
+All return the same dict shape as PPGNet for a uniform training/eval loop.
 """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-class PlainSwin(nn.Module):
+class PlainBackbone(nn.Module):
     def __init__(self, cfg, backbone):
         super().__init__()
         self.backbone = backbone
@@ -26,7 +27,9 @@ class PlainSwin(nn.Module):
 
 
 class DeterministicProto(nn.Module):
-    """ProtoPNet / HierViT-style: cosine prototypes + hard max, learnable head."""
+    """ProtoPNet-style: cosine prototypes + hard max pooling, learnable head.
+    Note: 'alpha' is the RAW cosine-similarity map (not a normalised attention),
+    so its entropy is not comparable with PPG's attention maps."""
     def __init__(self, cfg, backbone):
         super().__init__()
         self.backbone = backbone
@@ -42,17 +45,16 @@ class DeterministicProto(nn.Module):
         return {"logits": self.head(F.relu(act)), "alpha": S}
 
 
-class MCDropoutViT(nn.Module):
-    """Backbone + dropout + linear head; M passes at eval for uncertainty."""
+class MCDropoutBackbone(nn.Module):
+    """Backbone + always-on dropout + linear head; M passes at eval, logits averaged."""
     def __init__(self, cfg, backbone):
         super().__init__()
         self.cfg = cfg
         self.backbone = backbone
-        self.drop = nn.Dropout(cfg.mc_dropout_p)
         self.head = nn.Linear(backbone.out_channels, cfg.num_classes)
 
     def _once(self, feat):
-        # MC dropout: stays ON at eval (nn.Dropout would switch off under model.eval(),
+        # MC dropout stays ON at eval (nn.Dropout would switch off under model.eval(),
         # making all M passes identical)
         pooled = F.dropout(feat.mean(dim=(2, 3)), p=self.cfg.mc_dropout_p, training=True)
         return self.head(pooled)
@@ -65,14 +67,13 @@ class MCDropoutViT(nn.Module):
 
 
 def build_model(cfg, backbone):
-    """Factory used by train.py."""
+    """Factory used by the notebook / train.py. Anything not matching a baseline -> PPG."""
     name = cfg.exp_name.lower()
     if name.startswith("plain"):
-        return PlainSwin(cfg, backbone)
+        return PlainBackbone(cfg, backbone)
     if name.startswith("proto") or name.startswith("hiervit"):
         return DeterministicProto(cfg, backbone)
     if name.startswith("mcdropout"):
-        return MCDropoutViT(cfg, backbone)
-    # default -> the proposed model
-    from .ppg import PPGSwinT
-    return PPGSwinT(cfg, backbone)
+        return MCDropoutBackbone(cfg, backbone)
+    from .ppg import PPGNet
+    return PPGNet(cfg, backbone)
